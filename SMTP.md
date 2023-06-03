@@ -54,7 +54,7 @@ Les *objectifs* du code source à coder et rendre sont:
          * expliquez ce que vous faites si le code attendu n'est pas obtenu et où vous le faites pour éviter la duplication de code (D.R.Y.)
             * cas spécial: code 4xx
             * autres cas (erreurs)
-         * proposez une implémentation C de l'automate client SMTP, basée sur ``switch variable_etat`` et une boucle "infinie": voir l'[exemple d'automate de protocole réalisé en C](07_Couche_application/code/automate/automate.c)
+         * proposez une implémentation C de l'automate client SMTP, basée sur ``switch variable_etat`` et une boucle "infinie": voir l'[exemple d'automate de protocole réalisé en C](automate.c)
       * 2: envoi d'un mail dont le contenu est "hard-codé", en parsant la ligne de commande pour les
          autres éléments, en tenant compte du protocole SMTP avec le serveur, mais en ignorant les erreurs; en
          affichant le déroulé à l'écran
