@@ -21,187 +21,213 @@ typedef enum {
     SUCCESS
 } SMTPState;
 
-void sendCommand(int sockfd, const char* command) {
-    char buffer[MAX_BUFFER_SIZE];
-    sprintf(buffer, "%s\r\n", command);
-    write(sockfd, buffer, strlen(buffer));
-}
-
-int receiveResponse(int sockfd) {
-    char buffer[MAX_BUFFER_SIZE];
-    int responseCode = 0;
-    ssize_t bytesRead = read(sockfd, buffer, MAX_BUFFER_SIZE - 1);
+int readResponse(int sockfd, char* buffer, int bufferSize) {
+    memset(buffer, 0, bufferSize);
+    ssize_t bytesRead = read(sockfd, buffer, bufferSize - 1);
     if (bytesRead > 0) {
         buffer[bytesRead] = '\0';
-        sscanf(buffer, "%d", &responseCode);
-        printf("Server response: %s", buffer);
     }
-    return responseCode;
+    return bytesRead;
 }
 
-void handleState(int sockfd, SMTPState *state, const char* sender, const char* recipient, const char* subject, const char* message) {
+int sendCommand(int sockfd, const char* format, ...) {
+    char buffer[MAX_BUFFER_SIZE];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, MAX_BUFFER_SIZE, format, args);
+    va_end(args);
+    size_t len = strlen(buffer);
+
+    if (write(sockfd, buffer, len) != len) {
+        return -1;
+    }
+    return 0;
+}
+
+int handleState(int sockfd, SMTPState *state, const char* sender, const char* recipient, const char* subject, const char* message) {
     char buffer[MAX_BUFFER_SIZE];
     int responseCode;
+    int bytesReceived;
 
     switch (*state) {
         case CONNECTING:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 220) {
-                *state = WAITING_HELO_RESPONSE;
-                sendCommand(sockfd, "HELO client.example.com");
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 220) {
+                    *state = WAITING_HELO_RESPONSE;
+                    sendCommand(sockfd, "HELO client.example.com\r\n");
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
         case WAITING_HELO_RESPONSE:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 250) {
-                *state = WAITING_MAIL_FROM_RESPONSE;
-                sprintf(buffer, "MAIL FROM:<%s>", sender);
-                sendCommand(sockfd, buffer);
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 250) {
+                    *state = WAITING_MAIL_FROM_RESPONSE;
+                    sendCommand(sockfd, "MAIL FROM:<%s>\r\n", sender);
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
         case WAITING_MAIL_FROM_RESPONSE:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 250) {
-                *state = WAITING_RCPT_TO_RESPONSE;
-                sprintf(buffer, "RCPT TO:<%s>", recipient);
-                sendCommand(sockfd, buffer);
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 250) {
+                    *state = WAITING_RCPT_TO_RESPONSE;
+                    sendCommand(sockfd, "RCPT TO:<%s>\r\n", recipient);
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
         case WAITING_RCPT_TO_RESPONSE:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 250) {
-                *state = WAITING_DATA_RESPONSE;
-                sendCommand(sockfd, "DATA");
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 250) {
+                    *state = WAITING_DATA_RESPONSE;
+                    sendCommand(sockfd, "DATA\r\n");
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
         case WAITING_DATA_RESPONSE:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 354) {
-                *state = WAITING_CONTENT_RESPONSE;
-                sprintf(buffer, "From: <%s>\r\nTo: <%s>\r\nSubject: %s\r\n\r\n%s\r\n.\r\n", sender, recipient, subject, message);
-                write(sockfd, buffer, strlen(buffer));
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 354) {
+                    *state = WAITING_CONTENT_RESPONSE;
+                    sendCommand(sockfd, "Subject: %s\r\n\r\n%s\r\n.\r\n", subject, message);
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
         case WAITING_CONTENT_RESPONSE:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 250) {
-                *state = WAITING_QUIT_RESPONSE;
-                sendCommand(sockfd, "QUIT");
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 250) {
+                    *state = WAITING_QUIT_RESPONSE;
+                    sendCommand(sockfd, "QUIT\r\n");
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
         case WAITING_QUIT_RESPONSE:
-            responseCode = receiveResponse(sockfd);
-            if (responseCode == 221) {
-                *state = SUCCESS;
+            bytesReceived = readResponse(sockfd, buffer, MAX_BUFFER_SIZE);
+            if (bytesReceived > 0 && sscanf(buffer, "%d", &responseCode) == 1) {
+                printf("Server response: %s", buffer);
+                if (responseCode == 221) {
+                    *state = SUCCESS;
+                } else {
+                    *state = ERROR;
+                }
             } else {
                 *state = ERROR;
             }
             break;
 
-        default:
-            *state = ERROR;
-            break;
+        case ERROR:
+            printf("An error occurred while communicating with the server.\n");
+            return -1;
+
+        case SUCCESS:
+            printf("Email sent successfully!\n");
+            return 0;
     }
+
+    return 1;
 }
 
-void sendEmail(const char* sender, const char* subject, const char* message, const char* server, const char* recipient, int port) {
+int tcp_connect(const char *server, int port) {
     int sockfd;
-    struct sockaddr_in serverAddr;
-    struct hostent* host;
-    SMTPState state = CONNECTING;
+    struct sockaddr_in server_addr;
+    struct hostent *host;
 
-    // Get the host information
-    host = gethostbyname(server);
-    if (host == NULL) {
-        perror("Invalid hostname");
-        return;
-    }
-
-    // Create socket
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
-        perror("Socket creation failed");
-        return;
+        perror("socket");
+        return -1;
     }
 
-    // Set up server information
-    memset(&serverAddr, 0, sizeof(serverAddr));
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(port);
-    memcpy(&serverAddr.sin_addr, host->h_addr, host->h_length);
-
-    // Connect to the server
-    if (connect(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
-        perror("Connection failed");
-        close(sockfd);
-        return;
+    host = gethostbyname(server);
+    if (host == NULL) {
+        fprintf(stderr, "Unknown server: %s\n", server);
+        return -1;
     }
 
-    while (state != SUCCESS && state != ERROR) {
-        handleState(sockfd, &state, sender, recipient, subject, message);
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    memcpy(&server_addr.sin_addr, host->h_addr, host->h_length);
+
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("connect");
+        return -1;
     }
 
-    if (state == SUCCESS) {
-        printf("Email sent successfully!\n");
-    } else {
-        printf("An error occurred while sending the email.\n");
-    }
-
-    // Close the socket
-    close(sockfd);
+    return sockfd;
 }
 
-int main(int argc, char* argv[]) {
-    if (argc < 6) {
-        printf("Usage: %s sender subject message server recipient [port]\n", argv[0]);
+int sendEmail(const char* server, int port, const char* sender, const char* recipient, const char* subject, const char* message) {
+    SMTPState state = CONNECTING;
+    int sockfd = tcp_connect(server, port);
+
+    if (sockfd < 0) {
+        return -1;
+    }
+
+    while (state != SUCCESS) {
+        if (handleState(sockfd, &state, sender, recipient, subject, message) < 0) {
+            close(sockfd);
+            return -1;
+        }
+    }
+
+    close(sockfd);
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 7) {
+        printf("Usage: %s <server> <port> <sender> <recipient> <subject> <message>\n", argv[0]);
         return 1;
     }
 
-    const char* sender = argv[1];
-    const char* subject = argv[2];
-    const char* message = "";
-    const char* server = argv[4];
-    const char* recipient = argv[5];
-    int port = (argc >= 7) ? atoi(argv[6]) : DEFAULT_SMTP_PORT;
+    const char* server = argv[1];
+    int port = atoi(argv[2]);
+    const char* sender = argv[3];
+    const char* recipient = argv[4];
+    const char* subject = argv[5];
+    const char* message = argv[6];
 
-    // Check if the message is a file or a direct text
-    if (access(argv[3], F_OK) != -1) {
-        FILE* file = fopen(argv[3], "r");
-        if (file == NULL) {
-            perror("Failed to open message file");
-            return 1;
-        }
-        fseek(file, 0, SEEK_END);
-        long fileSize = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        char* buffer = malloc(fileSize + 1);
-        fread(buffer, 1, fileSize, file);
-        fclose(file);
-        buffer[fileSize] = '\0';
-        message = buffer;
-    } else {
-        message = argv[3];
-    }
-
-    sendEmail(sender, subject, message, server, recipient, port);
-
-    return 0;
+    int result = sendEmail(server, port, sender, recipient, subject, message);
+    return result;
 }
